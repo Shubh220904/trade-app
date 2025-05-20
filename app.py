@@ -18,7 +18,14 @@ def check_vpn_connection():
 
 def main():
     st.set_page_config(page_title="Crypto Trade Simulator", layout="wide")
-    
+    if 'running' not in st.session_state:
+        st.session_state['running'] = False
+    if 'client' not in st.session_state:
+        st.session_state['client'] = OKXWebSocketClient()
+    if 'last_update' not in st.session_state:
+        st.session_state['last_update'] = time.time()
+    if 'models_initialized' not in st.session_state:
+        st.session_state['models_initialized'] = False
     # VPN Connection Check
     if not check_vpn_connection():
         st.error("""
@@ -30,13 +37,13 @@ def main():
         return
 
     # Initialize session state
-    if 'running' not in st.session_state:
-        st.session_state.update({
-            'running': False,
-            'client': OKXWebSocketClient(),
-            'last_update': time.time(),
-            'models_initialized': False
-        })
+    # if 'running' not in st.session_state:
+    #     st.session_state.update({
+    #         'running': False,
+    #         'client': OKXWebSocketClient(),
+    #         'last_update': time.time(),
+    #         'models_initialized': False
+    #     })
 
     # Initialize models with error handling
     if not st.session_state.models_initialized:
@@ -75,41 +82,76 @@ def main():
     # Control Panel
     with st.sidebar:
         st.header("🎮 Control Panel")
-        
+    
         # Start/Stop controls
         col1, col2 = st.columns(2)
         with col1:
             start_btn = st.button("🚀 Start", help="Begin real-time simulation")
         with col2:
             stop_btn = st.button("🛑 Stop", help="Stop simulation")
-
+    
         if start_btn and not st.session_state.running:
             st.session_state.running = True
             if not st.session_state.client.running:
                 st.session_state.client.start()
-        
+    
         if stop_btn and st.session_state.running:
             st.session_state.running = False
             st.session_state.client.stop()
-
-        # Trade Parameters
+    
+        # --- Input Parameters ---
         st.header("⚙️ Trade Parameters")
-        quantity = st.number_input(
-            "Quantity (BTC)", 
-            0.01, 100.0, 1.0,
-            help="Amount of BTC you want to trade"
+    
+        # 1. Exchange (currently only OKX)
+        exchange = st.selectbox(
+            "Exchange",
+            options=["OKX"],
+            index=0,
+            help="Select the exchange"
         )
+    
+        # 2. Spot Asset (symbol)
+        spot_asset = st.text_input(
+            "Spot Asset (Symbol)",
+            value=SYMBOL,
+            help="Enter the trading pair symbol, e.g., BTC-USDT"
+        )
+    
+        # 3. Order Type (only 'market' supported)
+        order_type = st.selectbox(
+            "Order Type",
+            options=["market"],
+            index=0,
+            help="Order type (only market orders supported)"
+        )
+    
+        # 4. Quantity (~100 USD equivalent)
+        quantity_usd = st.number_input(
+            "Quantity (~USD)",
+            min_value=1.0,
+            max_value=100000.0,
+            value=100.0,
+            step=1.0,
+            help="Order size in USD equivalent"
+        )
+    
+        # 5. Volatility (market parameter)
+        volatility = st.slider(
+            "Volatility (market parameter, %)",
+            min_value=0.1,
+            max_value=10.0,
+            value=2.0,
+            step=0.1,
+            help="Expected market volatility (%)"
+        )
+    
+        # 6. Fee Tier
         fee_tier = st.selectbox(
-            "Fee Tier", 
-            list(FEE_TIERS.keys()),
+            "Fee Tier",
+            options=list(FEE_TIERS.keys()),
             help="Select your fee tier based on trading volume"
         )
-        volatility = st.slider(
-            "Volatility Adjustment (%)", 
-            0.1, 10.0, 2.0,
-            help="Adjust for expected market volatility"
-        )
-
+    
     # Main Display
     st.header("📈 Real-Time Trading Metrics")
     
@@ -135,8 +177,11 @@ def main():
             if not order_book or order_book.mid_price == 0:
                 time.sleep(0.5)
                 continue
-
+            
+            # Convert USD to asset quantity using current mid price
+            quantity = quantity_usd / order_book.mid_price
             # Calculate market features
+            
             best_bid = max(order_book.bids.keys()) if order_book.bids else 0
             best_ask = min(order_book.asks.keys()) if order_book.asks else 0
             spread = (best_ask - best_bid) / order_book.mid_price if best_ask and best_bid else 0

@@ -171,7 +171,8 @@ def main():
     # Main simulation loop
     while st.session_state.running:
         try:
-            start_time = time.time()
+            loop_start = time.perf_counter()
+            data_start = time.perf_counter()
             order_book = st.session_state.client.order_book
             
             if not order_book or order_book.mid_price == 0:
@@ -181,7 +182,7 @@ def main():
             # Convert USD to asset quantity using current mid price
             quantity = quantity_usd / order_book.mid_price
             # Calculate market features
-            
+
             best_bid = max(order_book.bids.keys()) if order_book.bids else 0
             best_ask = min(order_book.asks.keys()) if order_book.asks else 0
             spread = (best_ask - best_bid) / order_book.mid_price if best_ask and best_bid else 0
@@ -190,8 +191,11 @@ def main():
             # Prepare model inputs
             order_size_ratio = quantity / liquidity if liquidity > 0 else 0
             current_volatility = volatility / 100
+            data_end = time.perf_counter()
+            data_latency = (data_end - data_start) * 1000  # ms
             
             # Model predictions
+            model_start = time.perf_counter()
             slippage = st.session_state.models['slippage'].predict(
                 order_size_ratio, 
                 current_volatility,
@@ -212,10 +216,16 @@ def main():
                 liquidity
             )
             net_cost = order_value + fees + (slippage * order_value) + (market_impact * order_value)
-            
+            model_end = time.perf_counter()
+            model_latency = (model_end - model_start) * 1000  # ms
+
             # Latency calculation
             latency_ms = (time.time() - st.session_state.last_update) * 1000
             st.session_state.last_update = time.time()
+
+            ui_start = time.perf_counter()
+             
+            
 
             # Update metrics display
             metrics['slippage'].metric(
@@ -247,14 +257,22 @@ def main():
                 f"{maker_prob*100:.1f}% Maker",
                 delta=f"{100 - maker_prob*100:.1f}% Taker | Spread: {spread*100:.2f}%"
             )
+
+            ui_end = time.perf_counter()
+            ui_latency = (ui_end - ui_start) * 1000  # ms
+
+            loop_end = time.perf_counter()
+            loop_latency = (loop_end - loop_start) * 1000  # ms
             
             metrics['latency'].metric(
                 "System Latency", 
-                f"{latency_ms:.1f} ms",
-                delta=f"Last update: {time.strftime('%H:%M:%S')}"
+                
+                f"{loop_latency:.1f} ms",
+                delta=f"Data: {data_latency:.1f} ms | Model: {model_latency:.1f} ms | UI: {ui_latency:.1f} ms"
             )
 
             time.sleep(0.5)  # Update interval
+            
 
         except Exception as e:
             st.error(f"⚠️ Simulation Error: {str(e)}")
